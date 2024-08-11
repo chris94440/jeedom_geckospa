@@ -83,7 +83,6 @@ def listen():
 	except KeyboardInterrupt:
 		shutdown()
 
-
 def spaDiscover():
 	logging.debug("Discovering spa ...")
 	_locator.start_discovery()
@@ -386,7 +385,7 @@ _cycle = 0.3
 _client_id=''
 
 parser = argparse.ArgumentParser(
-description='Desmond Daemon for Jeedom plugin')
+description='Daemon for Jeedom plugin')
 parser.add_argument("--device", help="Device", type=str)
 parser.add_argument("--loglevel", help="Log Level for the daemon", type=str)
 parser.add_argument("--callback", help="Callback", type=str)

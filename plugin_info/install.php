@@ -28,3 +28,7 @@ function geckospa_update() {
 // Fonction exécutée automatiquement après la suppression du plugin
 function geckospa_remove() {
 }
+
+?>
+
+

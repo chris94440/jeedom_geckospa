@@ -1,0 +1,5 @@
+pyserial >= 3.5
+aiohttp >= 3.8.0
+urllib3 >= 1.26.15
+geckolib >= 0.4.15
+requests >= 0.0.0

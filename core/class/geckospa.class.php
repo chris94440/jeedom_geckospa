@@ -20,6 +20,8 @@ require_once __DIR__  . '/../../../../core/php/core.inc.php';
 
 class geckospa extends eqLogic {
 
+    const PYTHON_PATH = __DIR__ . '/../../resources/python_venv/bin/python3';
+
     public static function getcmdName($name) {
       	return str_replace(array('lights','pumps','waterCare','sensorBinary','sensor','waterHeater'),array('Lumière','Pompe','Traitement de l\'eau','Capteur binaire','Capteur','Chauffage'),$name);
     }
@@ -29,7 +31,29 @@ class geckospa extends eqLogic {
 
     }
 
-  /* Gestion du démon */
+/* Gestion des dépendances */
+public static function dependancy_install() {
+  log::remove(__CLASS__ . '_update');
+  return array('script' => __DIR__ . '/../../resources/install_apt.sh', 'log' => log::getPathToLog(__CLASS__ . '_update'));
+}
+
+public static function dependancy_info() {
+  $return = array();
+  $return['log'] = log::getPathToLog(__CLASS__ . '_update');
+  $return['progress_file'] = jeedom::getTmpFolder(__CLASS__) . '/dependance';
+  $return['state'] = 'ok';
+  if (file_exists(jeedom::getTmpFolder(__CLASS__) . '/dependance')) {
+    $return['state'] = 'in_progress';
+  } elseif (!file_exists(self::PYTHON_PATH)) {
+    $return['state'] = 'nok';
+  } elseif (exec(self::PYTHON_PATH . ' -m pip list | grep -Ewc "urllib3|aiohttp|pyserial|geckolib|requests"') < 5) {
+    $return['state'] = 'nok';
+  }
+  return $return;
+}
+
+
+/* Gestion du démon */
   public static function deamon_info() {
     $return = array();
     $return['log'] = __CLASS__;
@@ -62,7 +86,6 @@ class geckospa extends eqLogic {
     return $return;
 }
 
-/* Start daemon */
 public static function deamon_start() {
   self::deamon_stop();
   $deamon_info = self::deamon_info();
@@ -70,37 +93,45 @@ public static function deamon_start() {
       throw new Exception(__('Veuillez vérifier la configuration', __FILE__));
   }
 
-  $path = realpath(dirname(__FILE__) . '/../../resources/geckospad'); 
-  $cmd = 'python3 ' . $path . '/geckospad.py'; // nom du démon
-  $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(__CLASS__));
-  $cmd .= ' --socketport ' . config::byKey('socketport', __CLASS__, '55009'); // port du daemon
-  $cmd .= ' --callback ' . network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp') . '/plugins/geckospa/core/php/jeeGeckospa.php'; // chemin de la callback url 
-  //$cmd .= ' --user "' . trim(str_replace('"', '\"', config::byKey('user', __CLASS__))) . '"'; // user compte somfy
-  //$cmd .= ' --pswd "' . trim(str_replace('"', '\"', config::byKey('password', __CLASS__))) . '"'; // et password compte Somfy
-  $cmd .= ' --apikey ' . jeedom::getApiKey(__CLASS__); // l'apikey pour authentifier les échanges suivants
-  $cmd .= ' --pid ' . jeedom::getTmpFolder(__CLASS__) . '/geckospad.pid'; // et on précise le chemin vers le pid file (ne pas modifier)
-  //$cmd .= ' --pincode "' . trim(str_replace('"', '\"', config::byKey('pincode', __CLASS__))) . '"'; // Pin code box Somfy
-  //$cmd .= ' --boxLocalIp "' . trim(str_replace('"', '\"', config::byKey('boxLocalIp', __CLASS__))) . '"'; // IP box somfy
-  $cmd .= ' --clientId "' . trim(str_replace('"', '\"', self::guidv4())) . '"'; // IP box somfy
-  
-  log::add(__CLASS__, 'info', 'Lancement démon');
-  $result = exec($cmd . ' >> ' . log::getPathToLog('geckospa_daemon') . ' 2>&1 &'); 
-  $i = 0;
-  while ($i < 20) {
+  /*$webhook_ip = "";
+    $callbackip_cfg = config::byKey('ipwebhook', __CLASS__, '0');
+    if ($callbackip_cfg == 1) {
+      // Internal
+      $webhook_ip = network::getNetworkAccess('internal', 'ip');
+    } elseif ($callbackip_cfg == 2) {
+      // External
+      $webhook_ip = network::getNetworkAccess('external', 'ip');
+    } elseif ($callbackip_cfg == 3) {
+      // Personnalised
+      $webhook_ip = config::byKey('webhookdefinedip', __CLASS__, '');
+    }*/
+
+    $path = realpath(dirname(__FILE__) . '/../../resources');
+    $cmd = self::PYTHON_PATH . " {$path}/geckospad/geckospad.py";
+    $cmd .= ' --loglevel ' . log::convertLogLevel(log::getLogLevel(__CLASS__));
+    $cmd .= ' --socketport ' . config::byKey('socketport', __CLASS__, '55009');
+    $cmd .= ' --callback ' . network::getNetworkAccess('internal', 'proto:127.0.0.1:port:comp') . '/plugins/geckospa/core/php/jeeGeckospa.php';
+    $cmd .= ' --apikey ' . jeedom::getApiKey(__CLASS__);
+    $cmd .= ' --pid ' . jeedom::getTmpFolder(__CLASS__) . '/geckospad.pid';
+    $cmd .= ' --clientId "' . trim(str_replace('"', '\"', self::guidv4())) . '"';
+    
+    log::add(__CLASS__, 'info', 'Lancement démon');
+    $result = exec($cmd . ' >> ' . log::getPathToLog('geckospa_daemon') . ' 2>&1 &');
+    $i = 0;
+    while ($i < 20) {
       $deamon_info = self::deamon_info();
-      log::add(__CLASS__, 'info', 'Daemon_info -> '. json_encode($deamon_info));
       if ($deamon_info['state'] == 'ok') {
-          break;
+        break;
       }
       sleep(1);
       $i++;
-  }
-  if ($i >= 30) {
+    }
+    if ($i >= 30) {
       log::add(__CLASS__, 'error', __('Impossible de lancer le démon, vérifiez le log', __FILE__), 'unableStartDeamon');
       return false;
-  }
-  message::removeAll(__CLASS__, 'unableStartDeamon');
-  return true;
+    }
+    message::removeAll(__CLASS__, 'unableStartDeamon');
+    return true;
 }
 
 private static function guidv4() {
@@ -113,7 +144,6 @@ private static function guidv4() {
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
 }
 
-/* Stop daemon */
 public static function deamon_stop() {
   $pid_file = jeedom::getTmpFolder(__CLASS__) . '/geckospad.pid'; // ne pas modifier
   if (file_exists($pid_file)) {
@@ -133,13 +163,10 @@ protected static function getSocketPort() {
     return config::byKey('socketport', __CLASS__, 55009);
 }
 
- 
 public function getImage() {
     return 'plugins/geckospa/data/img/gecko_equipment.png';
 }
 
-
-/* Send data to daemon */
 public static function sendToDaemon($params) {
   $deamon_info = self::deamon_info();
   if ($deamon_info['state'] != 'ok') {
@@ -154,6 +181,7 @@ public static function sendToDaemon($params) {
   socket_write($socket, $payLoad, strlen($payLoad));
   socket_close($socket);
 }
+
 
   /*     * *************************Attributs****************************** */
 
@@ -209,15 +237,16 @@ public static function sendToDaemon($params) {
                   	//create cmd info state
                     if (!(is_object($geckoSpaCmd))) {
                         log::add(__CLASS__, 'debug', '                  -> Create cmd : ' . $cmdName);
-                        $geckoSpaCmd = new geckospaCmd();
-                        $geckoSpaCmd->setName(self::buildCmdName($cmdName));
-                        $geckoSpaCmd->setLogicalId($cmdName);
-                        $geckoSpaCmd->setEqLogic_id($eqLogic->getId());
+                        $geckoSpaCmd = new geckospaCmd();                        
+                        $geckoSpaCmd->setName(self::buildCmdName($cmdName));                        
+                        $geckoSpaCmd->setLogicalId($cmdName);                        
+                        $geckoSpaCmd->setEqLogic_id($eqLogic->getId());                        
                         $geckoSpaCmd->setIsVisible(1); 
                         $geckoSpaCmd->setType('info');
-                        if(is_bool($cmd['state'])) {
+                        
+                        if(is_bool($cmd['state'])) {                          
                           $geckoSpaCmd->setSubType('binary');
-                        } else {
+                        } else {                            
                           $geckoSpaCmd->setSubType('string');
                         }  
 
@@ -327,6 +356,7 @@ public static function sendToDaemon($params) {
   }
 
   private static function createCmdsWaterHeater($eqLogic,$cmd) {
+    log::add(__CLASS__, 'debug', '                  -> START Create cmds linked to waterheater function');
     if (array_key_exists('current_temp',$cmd) ) {
         $cmdName='Température eau';
         $geckoSpaCmd = $eqLogic->getCmd(null, 'current_temp');
@@ -350,10 +380,31 @@ public static function sendToDaemon($params) {
             $geckoSpaCmd->save();
         }
         $geckoSpaCmd->event($cmd['current_temp']);
-
+        log::add(__CLASS__, 'debug', '                  -> Create cmds current_temp');
     }
 
     $geckoSpaCmd->event($cmd['current_temp']);
+
+    if (array_key_exists('current_operation',$cmd) ) {
+      $cmdName='Opération';
+      $geckoSpaCmd = $eqLogic->getCmd(null, 'current_operation');
+      if (!(is_object($geckoSpaCmd))) {
+          $geckoSpaCmd = new geckospaCmd();
+          $geckoSpaCmd->setName($cmdName);
+          $geckoSpaCmd->setLogicalId('current_operation');
+          $geckoSpaCmd->setEqLogic_id($eqLogic->getId());
+          $geckoSpaCmd->setIsVisible(1); 
+          $geckoSpaCmd->setType('info');
+          $geckoSpaCmd->setSubType('string');
+          
+          $geckoSpaCmd->save();
+      }
+      $geckoSpaCmd->event($cmd['current_operation']);
+
+    }
+
+  $geckoSpaCmd->event($cmd['current_operation']);
+  log::add(__CLASS__, 'debug', '                  -> Create cmds current_operation');
 
 
     if (array_key_exists('target_temperature',$cmd) ) {
@@ -377,7 +428,7 @@ public static function sendToDaemon($params) {
             }
             
             $geckoSpaCmdAskTemp->save();
-
+            log::add(__CLASS__, 'debug', '                  -> Create info target_temperature');
 
             $geckoSpaCmd = new geckospaCmd();
             $geckoSpaCmd->setName($cmdName);
@@ -397,19 +448,21 @@ public static function sendToDaemon($params) {
             }
             
             $geckoSpaCmd->save();
+            log::add(__CLASS__, 'debug', '                  -> Create cmds target_temperature_slider');
         }
 
         $geckoSpaCmd = $eqLogic->getCmd(null, 'target_temperature');
         if (is_object($geckoSpaCmd)) {
             $geckoSpaCmd->event($cmd['target_temperature']);
+            log::add(__CLASS__, 'debug', '                  -> Create cmds target_temperature');
         }
 
 
     }
-
+    log::add(__CLASS__, 'debug', '                  -> END Create cmds linked to waterheater function');
   }
 
-  private function buildCmdName($cmdName) {
+  private static function buildCmdName($cmdName) {
     $aCmdName=explode('_',$cmdName);
     if (sizeof($aCmdName) > 2) {
         return self::getcmdName($aCmdName[0]) . ' ' . $aCmdName[1] . ' ' . self::getCmdState($aCmdName[2]);
@@ -487,16 +540,11 @@ public static function sendToDaemon($params) {
                     log::add(__CLASS__, 'debug', '			- update ' . $cmdName . ' with state ' . $cmd['state'] . ' and stateString -> '. $cmd['stateString']);
                     $geckoSpaCmd = $eqLogic->getCmd(null, $cmdName);
                     if (is_object($geckoSpaCmd)) {
-                        log::add(__CLASS__, 'debug', 'aaaaaaaaaa');
                         if ($cmd['stateList'] != '') {
-                            log::add(__CLASS__, 'debug', 'bbbbbbbbbbbbb');
                             if ($cmd['state'] != '') {
-                                log::add(__CLASS__, 'debug', 'cccccccccc');
                                 $i=0 ;
                                 foreach($cmd['stateList'] as $stateString) {
-                                    log::add(__CLASS__, 'debug', 'ddddddddddddd');
                                     if ( $cmd['state'] == $i) {
-                                        log::add(__CLASS__, 'debug', 'eeeeeeeeeeeeee -> ' . $stateString );
                                         $geckoSpaCmd->event($stateString);
                                         break;
                                     }
@@ -519,6 +567,12 @@ public static function sendToDaemon($params) {
                       	log::add(__CLASS__, 'debug', '			- update target_temperature by ' . $cmd['target_temperature']);
                         $geckoSpaCmd->event($cmd['target_temperature']);
                     }
+
+                    $geckoSpaCmd = $eqLogic->getCmd(null, 'current_operation');
+                    if (is_object($geckoSpaCmd)) {
+                      	log::add(__CLASS__, 'debug', '			- update current_operation by ' . $cmd['current_operation']);
+                        $geckoSpaCmd->event($cmd['current_operation']);
+                    }                    
                 }
             }
         }

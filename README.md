@@ -1,2 +1,2 @@
-# jeedom_tahomalocalAPI
-Plugin Jeedom permettant la gestion en local des équipements Gecko
+# jeedom_geckospa
+Plugin Jeedom permettant la gestion en local des spas équipés de mondules de contrôle Gecko
